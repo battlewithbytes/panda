@@ -10,6 +10,7 @@
 
 QObject * configurable_get_peripheral(char * name);
 void configurable_a9mp_inject_irq(void *opaque, int irq, int level);
+void configurable_a15mp_inject_irq(void *opaque, int irq, int level);
 
 
 // END_PYPANDA_NEEDS_THIS -- do not delete this comment!
