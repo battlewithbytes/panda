@@ -16,6 +16,7 @@
 
 #include "hw/avatar/configurable_machine.h"
 #include "hw/cpu/a9mpcore.h"
+#include "hw/cpu/a15mpcore.h"
 
 #define SH_TIMER_DEBUG_GATE 0
 
@@ -42,6 +43,7 @@ typedef struct {
     uint32_t freq;
     uint32_t int_level;
     uint32_t irq_num;
+    uint32_t gic_model;
     MemoryRegion iomem;
     qemu_irq irq;
 } shannon_timer_state;
@@ -59,10 +61,19 @@ static void shannon_timer_set_irq(void *opaque, int irq, int level)
 
 static void shannon_timer_update(shannon_timer_state *s)
 {
-    A9MPPrivState *gic = (A9MPPrivState *) configurable_get_peripheral("gic");
-    /* Update interrupts.  */
-    DPRINTF("SetIRQLevel %d: %d\n", s->irq_num, s->int_level);
-    configurable_a9mp_inject_irq(gic, s->irq_num-32, s->int_level);
+    DPRINTF("SetIRQLevel gic_model=%d %d: %d\n",
+        s->gic_model, s->irq_num, s->int_level);
+    if (s->gic_model == 0) {
+        A9MPPrivState *gic = (A9MPPrivState *) configurable_get_peripheral("gic");
+        /* Update interrupts.  */
+        configurable_a9mp_inject_irq(gic, s->irq_num-32, s->int_level);
+    } else if (s->gic_model == 1) {
+        A15MPPrivState *gic = (A15MPPrivState *) configurable_get_peripheral("gic");
+        /* Update interrupts.  */
+        configurable_a15mp_inject_irq(gic, s->irq_num-32, s->int_level);
+    } else {
+        DPRINTF("Error: unknown gic model: %d\n", s->gic_model);
+    }
 }
 
 
@@ -160,6 +171,7 @@ static const VMStateDescription vmstate_shannon_timer = {
         VMSTATE_UINT32(freq, shannon_timer_state),
         VMSTATE_UINT32(int_level, shannon_timer_state),
         VMSTATE_UINT32(irq_num, shannon_timer_state),
+        VMSTATE_UINT32(gic_model, shannon_timer_state),
         VMSTATE_PTIMER(timer, shannon_timer_state),
         VMSTATE_END_OF_LIST()
     }
@@ -201,6 +213,7 @@ static void shannon_timer_init(Object *obj)
 static Property shannon_timer_properties[] = {
     DEFINE_PROP_UINT32("irq_num", shannon_timer_state, irq_num, 35),
     DEFINE_PROP_UINT32("freq", shannon_timer_state, freq, 1000ll),
+    DEFINE_PROP_UINT32("gic_model", shannon_timer_state, gic_model, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
