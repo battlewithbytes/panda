@@ -1316,6 +1316,14 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
 
             cpu = CPU_NEXT(cpu);
 
+            /* cpu_exec consumes a per-CPU exit_request. Do not immediately
+             * enter the next VPE while the I/O thread is waiting for the BQL:
+             * its kick targeted the previous CPU, so the new one can run an
+             * infinite TB chain and starve QMP and the round-robin timer. */
+            if (atomic_read(&iothread_requesting_mutex)) {
+                break;
+            }
+
             if (panda_exit_loop) { // If we have a request to break, do so and
                                    // unset panda_exit_loop
                 panda_exit_loop = false;

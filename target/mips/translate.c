@@ -21243,7 +21243,7 @@ void cpu_state_reset(CPUMIPSState *env)
      * Configure default legacy segmentation control. We use this regardless of
      * whether segmentation control is presented to the guest.
      */
-#if 0
+    if (!env->cpu_model->cockpit_mtk_legacy_map) {
     /* KSeg3 (seg0 0xE0000000..0xFFFFFFFF) */
     env->CP0_SegCtl0 =   (CP0SC_AM_MK << CP0SC_AM);
     /* KSeg2 (seg1 0xC0000000..0xDFFFFFFF) */
@@ -21262,23 +21262,17 @@ void cpu_state_reset(CPUMIPSState *env)
                          (1 << CP0SC_EU) | (2 << CP0SC_C)) << 16;
     /* XKPhys (note, SegCtl2.XR = 0, so XAM won't be used) */
     env->CP0_SegCtl1 |= (CP0SC_AM_UK << CP0SC1_XAM);
-#else
-    // alyssa says: EVA is the future
-    // this is Table 3.12
-    env->CP0_SegCtl0 =   ((CP0SC_AM_MK << CP0SC_AM));
-    env->CP0_SegCtl0 |=  ((CP0SC_AM_MK << CP0SC_AM)) << 16;
+    } else {
+    /* Preserve the inherited MTK rehosting map only on its explicit legacy
+     * model. This compatibility state is not a validated silicon reset. */
     env->CP0_SegCtl1 =   ((CP0SC_AM_MUSUK << CP0SC_AM) | (5 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU));
     env->CP0_SegCtl1 |=  ((CP0SC_AM_MUSUK << CP0SC_AM) | (4 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU)) << 16;
     env->CP0_SegCtl2 =   ((CP0SC_AM_MUSUK << CP0SC_AM) | (2 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU));
     env->CP0_SegCtl2 |=  ((CP0SC_AM_MUSUK << CP0SC_AM) | (0 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU)) << 16;
 
-    // alyssa hack: force high addresses to go to the bus
     env->CP0_SegCtl0 =   ((CP0SC_AM_MUSUK << CP0SC_AM) | (7 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU));
     env->CP0_SegCtl0 |=  ((CP0SC_AM_MUSUK << CP0SC_AM) | (6 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU)) << 16;
-    // alyssa hack II, since 0x9xxx seems to map to 0x0xxx :x pls FIXME (only second one is modified)
-    //env->CP0_SegCtl1 =   ((CP0SC_AM_MUSUK << CP0SC_AM) | (5 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU));
-    //env->CP0_SegCtl1 |=  ((CP0SC_AM_MUSUK << CP0SC_AM) | (0 << CP0SC_PA) | (2 << CP0SC_C) | (1 << CP0SC_EU)) << 16;
-#endif
+    }
 
 #endif
     if ((env->insn_flags & ISA_MIPS32R6) &&

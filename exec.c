@@ -643,7 +643,9 @@ CPUState *qemu_get_cpu(int index)
 
 #if !defined(CONFIG_USER_ONLY)
 
-MemoryListener rr_listener;
+/* Each address space needs one RR listener, not one registration per CPU.
+ * Registering a singleton twice corrupts the intrusive listener lists and
+ * prevents secondary CPUs from seeing subsequent memory-map commits. */
 
 static RR_mem_type rr_mem_region_type(MemoryRegion* mr) {
     RR_mem_type mtype = RR_MEM_UNKNOWN;
@@ -697,9 +699,18 @@ void cpu_address_space_init(CPUState *cpu, AddressSpace *as, int asidx)
         memory_listener_register(&newas->tcg_as_listener, as);
 
         // PANDA Record and Replay
-        rr_listener.region_add = rr_mem_region_added_cb;
-        rr_listener.region_del = rr_mem_region_deleted_cb;
-        memory_listener_register(&rr_listener, as);
+        MemoryListener *rr;
+        QTAILQ_FOREACH(rr, &as->listeners, link_as) {
+            if (rr->region_add == rr_mem_region_added_cb) {
+                break;
+            }
+        }
+        if (!rr) {
+            rr = g_new0(MemoryListener, 1);
+            rr->region_add = rr_mem_region_added_cb;
+            rr->region_del = rr_mem_region_deleted_cb;
+            memory_listener_register(rr, as);
+        }
     }
 }
 

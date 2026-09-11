@@ -25,6 +25,7 @@
 #include "qemu-common.h"
 #include "sysemu/kvm.h"
 #include "exec/exec-all.h"
+#include "cockpit_mt.h"
 
 
 static void mips_cpu_set_pc(CPUState *cs, vaddr value)
@@ -75,7 +76,7 @@ static bool mips_cpu_has_work(CPUState *cs)
             has_work = true;
         }
 
-        if (!mips_vpe_active(env)) {
+        if (!(cockpit_mt_enabled(env) ? cockpit_mt_active(env) : mips_vpe_active(env))) {
             has_work = false;
         }
     }

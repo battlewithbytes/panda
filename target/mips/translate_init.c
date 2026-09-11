@@ -65,6 +65,9 @@ enum mips_mmu_types {
 
 struct mips_def_t {
     const char *name;
+    /* Compatibility only: never silently apply MTK rehosting reset state to
+     * a generic MIPS CPU. This is not an interAptiv hardware model. */
+    bool cockpit_mtk_legacy_map;
     int32_t CP0_PRid;
     int32_t CP0_Config0;
     int32_t CP0_Config1;
@@ -235,6 +238,30 @@ static const mips_def_t mips_defs[] =
         .mmu_type = MMU_TYPE_FMT,
     },
     {
+        .name = "cockpit-mtk-legacy",
+        .cockpit_mtk_legacy_map = true,
+        .CP0_PRid = 0x00019300,
+        .CP0_Config0 = MIPS_CONFIG0 | (0x1 << CP0C0_AR) |
+                       (MMU_TYPE_R4000 << CP0C0_MT),
+        .CP0_Config1 = MIPS_CONFIG1 | (15 << CP0C1_MMU) |
+                       (0 << CP0C1_IS) | (3 << CP0C1_IL) | (1 << CP0C1_IA) |
+                       (0 << CP0C1_DS) | (3 << CP0C1_DL) | (1 << CP0C1_DA) |
+                       (1 << CP0C1_CA),
+        .CP0_Config2 = MIPS_CONFIG2,
+        .CP0_Config3 = MIPS_CONFIG3 | (1 << CP0C3_MT) | (1 << CP0C3_ULRI),
+        .CP0_Config4 = MIPS_CONFIG4 | (1U << CP0C4_M) | (0x1c << CP0C4_KScrExist),
+        .CP0_Config5 = MIPS_CONFIG5 | (1 << CP0C5_EVA),
+        .CP0_LLAddr_rw_bitmask = 0,
+        .CP0_LLAddr_shift = 4,
+        .SYNCI_Step = 32,
+        .CCRes = 2,
+        .CP0_Status_rw_bitmask = 0x1278FF1F,
+        .SEGBITS = 32,
+        .PABITS = 32,
+        .insn_flags = CPU_MIPS32R2 | ASE_MIPS16 | ASE_MT,
+        .mmu_type = MMU_TYPE_R4000,
+    },
+    {
         .name = "24Kc",
         .CP0_PRid = 0x00019300,
         .CP0_Config0 = MIPS_CONFIG0 | (0x1 << CP0C0_AR) |
@@ -244,10 +271,7 @@ static const mips_def_t mips_defs[] =
                        (0 << CP0C1_DS) | (3 << CP0C1_DL) | (1 << CP0C1_DA) |
                        (1 << CP0C1_CA),
         .CP0_Config2 = MIPS_CONFIG2,
-        //.CP0_Config3 = MIPS_CONFIG3 | (0 << CP0C3_VInt),
-        .CP0_Config3 = MIPS_CONFIG3 | (0 << CP0C3_VInt) | (1 << CP0C3_MT) | (1 << CP0C3_ULRI), // alyssa hack
-        .CP0_Config4 = MIPS_CONFIG4 | (1U << CP0C4_M) | (0x1c << CP0C4_KScrExist), // alyssa hack (this is correct for interAptiv)
-	.CP0_Config5 = MIPS_CONFIG5 | (1 << CP0C5_EVA), // FIXME alyssa hack, this is wrong because we are MPU
+        .CP0_Config3 = MIPS_CONFIG3 | (0 << CP0C3_VInt),
         .CP0_LLAddr_rw_bitmask = 0,
         .CP0_LLAddr_shift = 4,
         .SYNCI_Step = 32,
@@ -256,7 +280,7 @@ static const mips_def_t mips_defs[] =
         .CP0_Status_rw_bitmask = 0x1278FF1F,
         .SEGBITS = 32,
         .PABITS = 32,
-        .insn_flags = CPU_MIPS32R2 | ASE_MIPS16 | ASE_MT, // FIXME MT is alyssa hack
+        .insn_flags = CPU_MIPS32R2 | ASE_MIPS16,
         .mmu_type = MMU_TYPE_R4000,
     },
     {

@@ -19,6 +19,7 @@
 #include "qemu/osdep.h"
 #include "qemu/main-loop.h"
 #include "cpu.h"
+#include "cockpit_mt.h"
 #include "qemu/host-utils.h"
 #include "exec/helper-proto.h"
 #include "exec/exec-all.h"
@@ -620,6 +621,15 @@ static CPUMIPSState *mips_cpu_map_tc(CPUMIPSState *env, int *tc)
     CPUState *other_cs;
     int vpe_idx;
     int tc_idx = *tc;
+
+    if (cockpit_mt_enabled(env)) {
+        CPUMIPSState *target = cockpit_mt_map(env, tc_idx);
+        if (!(env->CP0_VPEConf0 & (1 << CP0VPEC0_MVP)) && target != env) {
+            cpu_abort(CPU(mips_env_get_cpu(env)),
+                      "cockpit MT startup: non-master cross-VPE access");
+        }
+        return target;
+    }
 
     if (!(env->CP0_VPEConf0 & (1 << CP0VPEC0_MVP))) {
         /* Not allowed to address other CPUs.  */
@@ -1335,6 +1345,7 @@ void helper_mtc0_mvpcontrol(CPUMIPSState *env, target_ulong arg1)
 {
     uint32_t mask = 0;
     uint32_t newval;
+    uint32_t previous = env->mvp->CP0_MVPControl;
 
     if (env->CP0_VPEConf0 & (1 << CP0VPEC0_MVP))
         mask |= (1 << CP0MVPCo_CPA) | (1 << CP0MVPCo_VPC) |
@@ -1346,6 +1357,9 @@ void helper_mtc0_mvpcontrol(CPUMIPSState *env, target_ulong arg1)
     // TODO: Enable/disable shared TLB, enable/disable VPEs.
 
     env->mvp->CP0_MVPControl = newval;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_control(env, previous);
+    }
 }
 
 void helper_mtc0_vpecontrol(CPUMIPSState *env, target_ulong arg1)
@@ -1364,6 +1378,9 @@ void helper_mtc0_vpecontrol(CPUMIPSState *env, target_ulong arg1)
 
     //printf("vpecontrol set from %04x to %04x\n", env->CP0_VPEControl, newval);
     env->CP0_VPEControl = newval;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 void helper_mttc0_vpecontrol(CPUMIPSState *env, target_ulong arg1)
@@ -1380,6 +1397,9 @@ void helper_mttc0_vpecontrol(CPUMIPSState *env, target_ulong arg1)
     /* TODO: Enable/disable TCs.  */
 
     other->CP0_VPEControl = newval;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 target_ulong helper_mftc0_vpecontrol(CPUMIPSState *env)
@@ -1437,6 +1457,9 @@ void helper_mtc0_vpeconf0(CPUMIPSState *env, target_ulong arg1)
     // TODO: TC exclusive handling due to ERL/EXL.
 
     env->CP0_VPEConf0 = newval;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 void helper_mttc0_vpeconf0(CPUMIPSState *env, target_ulong arg1)
@@ -1446,11 +1469,23 @@ void helper_mttc0_vpeconf0(CPUMIPSState *env, target_ulong arg1)
     uint32_t mask = 0;
     uint32_t newval;
 
-    mask |= (1 << CP0VPEC0_MVP) | (1 << CP0VPEC0_VPA);
+    if (cockpit_mt_enabled(env)) {
+        if (env->CP0_VPEConf0 & (1 << CP0VPEC0_MVP)) {
+            mask = (1 << CP0VPEC0_MVP) | (1 << CP0VPEC0_VPA);
+            if (!(other->CP0_VPEConf0 & (1 << CP0VPEC0_VPA))) {
+                mask |= 0xff << CP0VPEC0_XTC;
+            }
+        }
+    } else {
+        mask |= (1 << CP0VPEC0_MVP) | (1 << CP0VPEC0_VPA);
+    }
     newval = (other->CP0_VPEConf0 & ~mask) | (arg1 & mask);
 
     /* TODO: TC exclusive handling due to ERL/EXL.  */
     other->CP0_VPEConf0 = newval;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 void helper_mtc0_vpeconf1(CPUMIPSState *env, target_ulong arg1)
@@ -1511,6 +1546,9 @@ void helper_mtc0_tcstatus(CPUMIPSState *env, target_ulong arg1)
 
     env->active_tc.CP0_TCStatus = newval;
     sync_c0_tcstatus(env, env->current_tc, newval);
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 void helper_mttc0_tcstatus(CPUMIPSState *env, target_ulong arg1)
@@ -1522,7 +1560,12 @@ void helper_mttc0_tcstatus(CPUMIPSState *env, target_ulong arg1)
         other->active_tc.CP0_TCStatus = arg1;
     else
         other->tcs[other_tc].CP0_TCStatus = arg1;
-    sync_c0_tcstatus(other, other_tc, arg1);
+    if (!cockpit_mt_enabled(env) || other_tc == other->current_tc) {
+        sync_c0_tcstatus(other, other_tc, arg1);
+    }
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+    }
 }
 
 void helper_mtc0_tcbind(CPUMIPSState *env, target_ulong arg1)
@@ -1545,6 +1588,11 @@ void helper_mttc0_tcbind(CPUMIPSState *env, target_ulong arg1)
 
     if (other->mvp->CP0_MVPControl & (1 << CP0MVPCo_VPC))
         mask |= (1 << CP0TCBd_CurVPE);
+    if (cockpit_mt_enabled(env) &&
+        (other->mvp->CP0_MVPControl & (1 << CP0MVPCo_VPC))) {
+        cockpit_mt_bind(other, other_tc, arg1);
+        return;
+    }
     if (other_tc == other->current_tc) {
         newval = (other->active_tc.CP0_TCBind & ~mask) | (arg1 & mask);
         other->active_tc.CP0_TCBind = newval;
@@ -1567,6 +1615,17 @@ void helper_mttc0_tcrestart(CPUMIPSState *env, target_ulong arg1)
     int other_tc = env->CP0_VPEControl & (0xff << CP0VPECo_TargTC);
     CPUMIPSState *other = mips_cpu_map_tc(env, &other_tc);
 
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_restart(other, other_tc, arg1);
+        if (other_tc == other->current_tc) {
+            other->active_tc.CP0_TCStatus &= ~(1 << CP0TCSt_TDS);
+        } else {
+            other->tcs[other_tc].CP0_TCStatus &= ~(1 << CP0TCSt_TDS);
+        }
+        other->lladdr = 0ULL;
+        return;
+    }
+
     if (other_tc == other->current_tc) {
         other->active_tc.PC = arg1;
         other->active_tc.CP0_TCStatus &= ~(1 << CP0TCSt_TDS);
@@ -1585,6 +1644,10 @@ void helper_mtc0_tchalt(CPUMIPSState *env, target_ulong arg1)
     MIPSCPU *cpu = mips_env_get_cpu(env);
 
     env->active_tc.CP0_TCHalt = arg1 & 0x1;
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+        return;
+    }
 
     // TODO: Halt TC / Restart (if allocated+active) TC.
     if (env->active_tc.CP0_TCHalt & 1) {
@@ -1606,6 +1669,11 @@ void helper_mttc0_tchalt(CPUMIPSState *env, target_ulong arg1)
         other->active_tc.CP0_TCHalt = arg1;
     else
         other->tcs[other_tc].CP0_TCHalt = arg1;
+
+    if (cockpit_mt_enabled(env)) {
+        cockpit_mt_refresh(env);
+        return;
+    }
 
     if (arg1 & 1) {
         mips_tc_sleep(other_cpu, other_tc);
@@ -2330,6 +2398,11 @@ target_ulong helper_dvpe(CPUMIPSState *env)
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->mvp->CP0_MVPControl;
 
+    if (cockpit_mt_enabled(env)) {
+        helper_mtc0_mvpcontrol(env, prev & ~(1 << CP0MVPCo_EVP));
+        return prev;
+    }
+
     CPU_FOREACH(other_cs) {
         MIPSCPU *other_cpu = MIPS_CPU(other_cs);
         /* Turn off all VPEs except the one executing the dvpe.  */
@@ -2345,6 +2418,11 @@ target_ulong helper_evpe(CPUMIPSState *env)
 {
     CPUState *other_cs = first_cpu;
     target_ulong prev = env->mvp->CP0_MVPControl;
+
+    if (cockpit_mt_enabled(env)) {
+        helper_mtc0_mvpcontrol(env, prev | (1 << CP0MVPCo_EVP));
+        return prev;
+    }
 
     CPU_FOREACH(other_cs) {
         MIPSCPU *other_cpu = MIPS_CPU(other_cs);

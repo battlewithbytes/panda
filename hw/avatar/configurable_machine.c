@@ -48,6 +48,7 @@ typedef  X86CPU THISCPU;
 #include "hw/mips/mips.h"
 #include "hw/mips/cpudevs.h"
 #include "target/mips/cpu.h"
+#include "target/mips/cockpit_mt.h"
 typedef  MIPSCPU THISCPU;
 
 #elif defined(TARGET_PPC)
@@ -582,6 +583,51 @@ static void board_init(MachineState * ms)
     cpuu = create_cpu(ms, conf);
     set_entry_point(conf, cpuu);
 
+#if defined(TARGET_MIPS)
+    if (qdict_haskey(conf, "mips_mt")) {
+        QDict *mt;
+        CockpitMTTopology topology;
+        MIPSCPU **cpus;
+        unsigned i, count;
+        int64_t cores, vpes, tcs;
+        QDICT_ASSERT_KEY_TYPE(conf, "mips_mt", QTYPE_QDICT);
+        mt = qdict_get_qdict(conf, "mips_mt");
+        QDICT_ASSERT_KEY_TYPE(mt, "profile", QTYPE_QSTRING);
+        QDICT_ASSERT_KEY_TYPE(mt, "cores", QTYPE_QINT);
+        QDICT_ASSERT_KEY_TYPE(mt, "vpes_per_core", QTYPE_QINT);
+        QDICT_ASSERT_KEY_TYPE(mt, "tcs_per_core", QTYPE_QINT);
+        cores = qdict_get_int(mt, "cores");
+        vpes = qdict_get_int(mt, "vpes_per_core");
+        tcs = qdict_get_int(mt, "tcs_per_core");
+        if (strcmp(qdict_get_str(mt, "profile"), "startup-v1") ||
+            cores < 1 || cores > 4 || vpes < 1 || vpes > 4 ||
+            tcs < vpes || tcs > MIPS_TC_MAX) {
+            fprintf(stderr, "Unsupported mips_mt topology/profile\n");
+            exit(1);
+        }
+        topology = (CockpitMTTopology) { cores, vpes, tcs };
+        if (!cockpit_mt_topology_valid(&topology)) {
+            fprintf(stderr, "Invalid mips_mt topology\n");
+            exit(1);
+        }
+        count = topology.cores * topology.vpes_per_core;
+        if (smp_cpus != count) {
+            fprintf(stderr, "mips_mt topology requires matching -smp CPU count\n");
+            exit(1);
+        }
+        cpus = g_new0(MIPSCPU *, count);
+        cpus[0] = cpuu;
+        for (i = 1; i < count; i++) {
+            cpus[i] = create_cpu(ms, conf);
+        }
+        cockpit_mt_init(cpus, &topology, cpuu->env.active_tc.PC);
+        g_free(cpus);
+    } else if (smp_cpus != 1) {
+        fprintf(stderr, "Multiple configurable MIPS CPUs require an explicit mips_mt topology\n");
+        exit(1);
+    }
+#endif
+
 
 
     if (qdict_haskey(conf, "memory_mapping"))
@@ -616,6 +662,9 @@ static void configurable_machine_class_init(ObjectClass *oc, void *data)
     mc->desc = "Machine that can be configured to be whatever you want";
     mc->init = board_init;
     mc->block_default_type = IF_SCSI;
+#if defined(TARGET_MIPS)
+    mc->max_cpus = 16;
+#endif
 }
 
 static const TypeInfo configurable_machine_type = {
