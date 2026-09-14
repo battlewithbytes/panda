@@ -11671,7 +11671,7 @@ static int decode_extended_mips16_opc (CPUMIPSState *env, DisasContext *ctx)
         case 1:
             switch (ctx->opcode & 0x3) {
             case 0x0:
-                LOG_DISAS("INS is untested\n"); // FIXME
+                LOG_DISAS("INS\n");
                 {
                 uint32_t lsb = (ctx->opcode >> 22) & 0x1f;
                 uint32_t msb = (ctx->opcode >> 16) & 0x1f;
@@ -11686,7 +11686,10 @@ static int decode_extended_mips16_opc (CPUMIPSState *env, DisasContext *ctx)
                 if ((ctx->opcode >> 21) & 1) {
                     // insert bit field extended
                     TCGv_i32 t1 = tcg_temp_new_i32();
-                    tcg_gen_andi_i32(t1, cpu_gpr[ry], srcmask);
+                    /* rx supplies the bits; ry is the preserved destination.
+                     * Read the source first so overlapping operands are safe.
+                     */
+                    tcg_gen_andi_i32(t1, cpu_gpr[rx], srcmask);
                     tcg_gen_shli_tl(t1, t1, lsb);
                     tcg_gen_andi_i32(cpu_gpr[ry], cpu_gpr[ry], dstmask);
                     tcg_gen_or_tl(cpu_gpr[ry], cpu_gpr[ry], t1);
