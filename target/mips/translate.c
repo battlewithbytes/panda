@@ -7815,6 +7815,13 @@ static void gen_mftr(CPUMIPSState *env, DisasContext *ctx, int rt, int rd,
                 break;
             }
             break;
+        case 4:
+            if (sel == 2 && ctx->ulri) {
+                gen_helper_mftc0_userlocal(t0, cpu_env);
+            } else {
+                gen_mfc0(ctx, t0, rt, sel);
+            }
+            break;
         case 10:
             switch (sel) {
             case 0:
@@ -8036,6 +8043,13 @@ static void gen_mttr(CPUMIPSState *env, DisasContext *ctx, int rd, int rt,
             default:
                 gen_mtc0(ctx, t0, rd, sel);
                 break;
+            }
+            break;
+        case 4:
+            if (sel == 2 && ctx->ulri) {
+                gen_helper_mttc0_userlocal(cpu_env, t0);
+            } else {
+                gen_mtc0(ctx, t0, rd, sel);
             }
             break;
         case 10:
@@ -11834,9 +11848,13 @@ static int decode_extended_mips16_opc (CPUMIPSState *env, DisasContext *ctx)
         case 6:
             switch (ctx->opcode & 0x3) {
             case 0:
-                // PAUSE
-                LOG_DISAS("PAUSE unimplemented\n"); // FIXME
-                generate_exception_end(ctx, EXCP_RI);
+                /* PAUSE: use the same non-sleeping policy as MIPS32 PAUSE.
+                 * The guest still retries LL/SC; do not clear its reservation
+                 * or manufacture lock acquisition. No timing fidelity claimed.
+                 */
+                if (ctx->opcode != 0xf1403018) {
+                    generate_exception_end(ctx, EXCP_RI);
+                }
                 break;
             case 2:
                 // MOVTN

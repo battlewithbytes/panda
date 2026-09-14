@@ -980,6 +980,17 @@ target_ulong helper_mftc0_tccontext(CPUMIPSState *env)
 //#endif
 }
 
+/* UserLocal belongs to the selected thread, not the issuing VPE. */
+target_ulong helper_mftc0_userlocal(CPUMIPSState *env)
+{
+    int other_tc = env->CP0_VPEControl & (0xff << CP0VPECo_TargTC);
+    CPUMIPSState *other = mips_cpu_map_tc(env, &other_tc);
+    target_ulong value = other_tc == other->current_tc
+        ? other->active_tc.CP0_UserLocal : other->tcs[other_tc].CP0_UserLocal;
+
+    return (target_long)(int32_t)value;
+}
+
 target_ulong helper_mfc0_tcschedule(CPUMIPSState *env)
 {
 
@@ -1696,6 +1707,18 @@ void helper_mttc0_tccontext(CPUMIPSState *env, target_ulong arg1)
         other->active_tc.CP0_TCContext = arg1;
     else
         other->tcs[other_tc].CP0_TCContext = arg1;
+}
+
+void helper_mttc0_userlocal(CPUMIPSState *env, target_ulong arg1)
+{
+    int other_tc = env->CP0_VPEControl & (0xff << CP0VPECo_TargTC);
+    CPUMIPSState *other = mips_cpu_map_tc(env, &other_tc);
+
+    if (other_tc == other->current_tc) {
+        other->active_tc.CP0_UserLocal = arg1;
+    } else {
+        other->tcs[other_tc].CP0_UserLocal = arg1;
+    }
 }
 
 void helper_mtc0_tcschedule(CPUMIPSState *env, target_ulong arg1)
