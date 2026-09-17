@@ -691,6 +691,34 @@ QObject * configurable_get_peripheral(char * name) {
     return qdict_get(peripherals, name);
 }
 
+#if defined(TARGET_MIPS)
+/* Emulator-thread-only endpoint for a platform interrupt controller. This is
+ * a CPU pin, NOT a peripheral interrupt number or an interrupt dispatcher.
+ * Keep CPUArchState access compiled: Python's historical layouts can be stale.
+ * A dedicated owner must aggregate all sources sharing a CPU pin upstream.
+ * No register-layout changes, inferred target CPU, or forced exception entry.
+ */
+int configurable_mips_set_irq(int cpu_index, int pin, int level)
+{
+    CPUState *cs;
+    MIPSCPU *cpu;
+
+    if (cpu_index < 0 || pin < 2 || pin > 7 || (level != 0 && level != 1)) {
+        return -1;
+    }
+    cs = qemu_get_cpu(cpu_index);
+    if (!cs) {
+        return -2;
+    }
+    cpu = MIPS_CPU(cs);
+    if (!cpu->env.irq[pin]) {
+        return -3;
+    }
+    qemu_set_irq(cpu->env.irq[pin], level);
+    return 0;
+}
+#endif
+
 #if defined(TARGET_ARM)
 void configurable_a9mp_inject_irq(void *opaque, int irq, int level){
     A9MPPrivState *s = (A9MPPrivState *)opaque;
