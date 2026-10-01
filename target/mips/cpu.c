@@ -26,6 +26,7 @@
 #include "sysemu/kvm.h"
 #include "exec/exec-all.h"
 #include "cockpit_mt.h"
+#include "hw/qdev-properties.h"
 
 
 static void mips_cpu_set_pc(CPUState *cs, vaddr value)
@@ -63,7 +64,12 @@ static bool mips_cpu_has_work(CPUState *cs)
     if ((cs->interrupt_request & CPU_INTERRUPT_HARD) &&
         cpu_mips_hw_interrupts_pending(env)) {
         if (cpu_mips_hw_interrupts_enabled(env) ||
-            (env->insn_flags & ISA_MIPS32R6)) {
+            (env->insn_flags & ISA_MIPS32R6) ||
+            (cs->halted && cpu->wait_irq_wake)) {
+            /* Optional board policy: an IM-qualified pending pin wakes WAIT
+             * without changing Status or taking an exception while IE is off.
+             * MT activity checks below still apply. Defaults remain unchanged.
+             */
             has_work = true;
         }
     }
@@ -151,11 +157,18 @@ static void mips_cpu_initfn(Object *obj)
     }
 }
 
+static Property mips_cpu_properties[] = {
+    DEFINE_PROP_BOOL("wait-irq-wake", MIPSCPU, wait_irq_wake, false),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void mips_cpu_class_init(ObjectClass *c, void *data)
 {
     MIPSCPUClass *mcc = MIPS_CPU_CLASS(c);
     CPUClass *cc = CPU_CLASS(c);
     DeviceClass *dc = DEVICE_CLASS(c);
+
+    dc->props = mips_cpu_properties;
 
     mcc->parent_realize = dc->realize;
     dc->realize = mips_cpu_realizefn;

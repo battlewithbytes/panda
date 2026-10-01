@@ -671,6 +671,8 @@ struct MIPSCPU {
     /*< public >*/
 
     CPUMIPSState env;
+    /* Board-selected WAIT wake policy; independent of IRQ exception gating. */
+    bool wait_irq_wake;
 };
 
 static inline MIPSCPU *mips_env_get_cpu(CPUMIPSState *env)
